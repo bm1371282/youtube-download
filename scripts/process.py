@@ -20,31 +20,29 @@ def run(cmd, **kwargs):
 def is_playlist(url):
     return "playlist?list=" in url or "/playlist/" in url
 
-
 def yt_dlp_cmd(url, output_template, playlist):
     """Generate yt-dlp command with JavaScript runtime support"""
-    # FIXED: Use 'quickjs' instead of 'qjs'
-    js_runtime = "--js-runtimes quickjs"
+    # Use explicit path to QuickJS binary
+    js_runtime = '--js-runtimes /usr/local/bin/qjs'
 
     # Format: prefer 720p, then any video with audio
     fmt = "bestvideo[height<=720]+bestaudio/best"
 
     no_playlist = "" if playlist else "--no-playlist"
 
-    # FIXED: Cookies file handling - ensure it exists and path is correct
+    # Check if cookies file exists
     cookies = f'--cookies "{COOKIES_FILE}"' if COOKIES_FILE and Path(COOKIES_FILE).exists() else ""
 
-    # FIXED: Remove android/ios clients when using cookies (they don't support cookies)
-    # Use web client which supports cookies and works with JS runtime
+    # Use web client for cookie support
     return (
         f'yt-dlp -f "{fmt}" --merge-output-format mp4 '
         f'--extractor-args "youtube:player_client=web" '
         f'--retries 5 --fragment-retries 5 --sleep-requests 2 '
         f'--sleep-interval 3 --max-sleep-interval 10 '
+        f'--no-check-certificates '
         f'{no_playlist} {cookies} {js_runtime} '
         f'-o "{output_template}" "{url}"'
     )
-
 
 def read_info_json(tmpdir):
     info_jsons = sorted(Path(tmpdir).rglob("*.info.json"))

@@ -19,26 +19,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install QuickJS
+      - name: Install latest QuickJS from source
         run: |
-          # Install QuickJS properly so it's recognized as 'quickjs'
-          sudo apt-get update
-          sudo apt-get install -y quickjs
+          # Remove old version if exists
+          sudo apt-get remove -y quickjs || true
           
-          # Create symlink if needed
-          if ! command -v quickjs &> /dev/null; then
-            echo "Creating symlink for quickjs"
-            sudo ln -s $(which qjs) /usr/local/bin/quickjs 2>/dev/null || true
-          fi
+          # Install build dependencies
+          sudo apt-get update
+          sudo apt-get install -y git make gcc libc6-dev
+          
+          # Clone and build latest QuickJS
+          git clone https://github.com/bellard/quickjs.git /tmp/quickjs
+          cd /tmp/quickjs
+          make
+          
+          # Install to /usr/local/bin
+          sudo cp qjs qjsc /usr/local/bin/
           
           # Verify installation
-          echo "Checking installations:"
-          which qjs && qjs --version
-          which quickjs && quickjs --version || echo "quickjs symlink not created"
+          /usr/local/bin/qjs --help | head -5
+          echo "QuickJS installed successfully"
           
-          # Show what yt-dlp sees
-          echo "Testing yt-dlp runtime detection..."
-          yt-dlp --list-runtimes 2>&1 | grep -i quick || true
+          # Show version info (newer versions support --version)
+          /usr/local/bin/qjs -e "console.log('QuickJS version:', typeof version !== 'undefined' ? version : 'unknown')"
 
       - name: Install yt-dlp
         run: |
@@ -50,11 +53,9 @@ jobs:
           YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
         run: |
           if [ -n "$YOUTUBE_COOKIES" ]; then
-            # Ensure cookies file is in Netscape format
             echo "$YOUTUBE_COOKIES" > /tmp/yt-cookies.txt
             echo "COOKIES_FILE=/tmp/yt-cookies.txt" >> $GITHUB_ENV
             echo "Cookies file configured"
-            # Verify cookies file exists
             ls -la /tmp/yt-cookies.txt
           else
             echo "No cookies provided - downloads may be limited"
@@ -62,17 +63,25 @@ jobs:
 
       - name: Test yt-dlp with QuickJS
         run: |
-          # Test with a public video to verify setup
           echo "Testing yt-dlp with QuickJS runtime..."
-          yt-dlp --js-runtimes quickjs --simulate \
+          # Test with a simple public video
+          yt-dlp --js-runtimes /usr/local/bin/qjs --simulate \
             --extractor-args "youtube:player_client=web" \
-            "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+            "https://www.youtube.com/watch?v=jNQXAC9IVRw" 2>&1 | tee test.log
+          
+          # Check if test passed
+          if grep -q "n challenge" test.log; then
+            echo "ERROR: QuickJS not working properly"
+            exit 1
+          fi
           echo "Test successful"
 
       - name: Process pending videos
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          # Set explicit path to QuickJS
+          YTDLP_JS_RUNTIME: /usr/local/bin/qjs
         run: |
           python scripts/process.py
 
